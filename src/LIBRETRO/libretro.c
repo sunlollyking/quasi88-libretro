@@ -879,6 +879,12 @@ bool retro_unserialize(const void *data, size_t size)
    pc88main_init(INIT_STATELOAD);
    pc88sub_init(INIT_STATELOAD);
 
+   /* Loading a state releases every key, so press the held ones again */
+   if (key_buffer)
+      memset(key_buffer, 0, KEY88_END * sizeof(bool));
+   if (pad_buffer)
+      memset(pad_buffer, 0, KEY88_END * sizeof(bool));
+
    return success;
 }
 
