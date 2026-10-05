@@ -190,6 +190,9 @@ struct autotype_step
 /* Frames run for each one shown while the tape is being read, so that a
  * load keeps its timing but takes seconds rather than minutes */
 #define TAPE_TURBO_FRAMES    8
+/* Machine frames a disk drive must stand idle before anything is typed, so
+ * that a boot or a load from disk has finished and its prompt is up */
+#define DISK_IDLE_FRAMES     90
 
 static struct autotype_step autotype_steps[AUTOTYPE_MAX_STEPS];
 static int  autotype_count       = 0;
@@ -204,6 +207,7 @@ static bool autotype_tape        = false;
 static long tape_last_pos        = -1;
 static int  tape_still           = 0;
 static int  motor_still          = 0;
+static int  disk_still           = 0;
 /* The machine a file name's braces ask for: a BASIC mode and a clock in MHz */
 static int  brace_basic          = -1;
 static int  brace_clock          = 0;
@@ -410,6 +414,7 @@ static void autotype_start(void)
    tape_last_pos       = -1;
    tape_still          = TAPE_IDLE_FRAMES;
    motor_still         = MOTOR_IDLE_FRAMES;
+   disk_still          = DISK_IDLE_FRAMES;
 }
 
 /* Counts the machine frames since the tape last moved */
@@ -432,6 +437,15 @@ static void tape_tick(void)
    }
    else if (tape_still < TAPE_IDLE_FRAMES)
       tape_still++;
+}
+
+/* Counts the machine frames since a disk drive was last busy */
+static void disk_tick(void)
+{
+   if (!get_drive_ready(0) || !get_drive_ready(1))
+      disk_still = 0;
+   else if (disk_still < DISK_IDLE_FRAMES)
+      disk_still++;
 }
 
 /* Whether a program is reading the tape: its motor has turned and the tape
@@ -488,8 +502,8 @@ static void handle_autotype(void)
    }
    if (autotype_step >= autotype_count)
       return;
-   /* Nothing is typed while the tape is being read */
-   if (tape_loading())
+   /* Nothing is typed while the tape or a disk is being read */
+   if (tape_loading() || disk_still < DISK_IDLE_FRAMES)
       return;
 
    if (autotype_files_asked)
@@ -572,7 +586,7 @@ struct autotype_state
    char    magic[4];
    int32_t step, chr, wait, pause, shift, held, files_asked, tape;
    int32_t at_prompt;
-   int32_t tape_still, motor_still, tape_last_pos;
+   int32_t tape_still, motor_still, tape_last_pos, disk_still;
 };
 
 #define AUTOTYPE_STATE_MAGIC "QATS"
@@ -592,6 +606,7 @@ static void autotype_save(struct autotype_state *out)
    out->tape_still    = tape_still;
    out->motor_still   = motor_still;
    out->tape_last_pos = (int32_t)tape_last_pos;
+   out->disk_still    = disk_still;
 }
 
 static void autotype_load(const struct autotype_state *in)
@@ -610,6 +625,7 @@ static void autotype_load(const struct autotype_state *in)
    tape_still           = in->tape_still;
    motor_still          = in->motor_still;
    tape_last_pos        = in->tape_last_pos;
+   disk_still           = in->disk_still;
    /* Loading the machine released the key being typed */
    if (autotype_shift)
       quasi88_key(autotype_shift, 1);
@@ -1270,6 +1286,7 @@ void retro_run(void)
       quasi88_loop();
       quasi88_loop();
       tape_tick();
+      disk_tick();
    }
    if (rumble_cb)
       handle_rumble();
